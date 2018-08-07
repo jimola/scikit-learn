@@ -490,10 +490,6 @@ cdef class ClassificationCriterion(Criterion):
         # sum_left from the direction that require the least amount
         # of computations, i.e. from pos to new_pos or from end to new_po.
         
-        with gil:
-            print('POS ' + str(self.start) + ' ' + str(self.pos) + ' ' + \
-                    str(new_pos) + ' ' + str(self.end))
-
         if (new_pos - pos) <= (end - new_pos):
             for p in range(pos, new_pos):
                 i = samples[p]
@@ -703,13 +699,6 @@ cdef class Gini(ClassificationCriterion):
         cdef double running_w
 
         small_sort(sort_inds, perf_sum_total, self.n_algs)
-        with gil:
-            for k in range(self.n_algs):
-                print(sort_inds[k]),
-            print('')
-            for k in range(self.n_algs):
-                print(perf_sum_total[k]),
-            print('')
         for k in range(self.n_outputs):
             running_w = 0
             sq_count = 0.0
@@ -791,7 +780,7 @@ cdef class Gini(ClassificationCriterion):
                 i = sort_inds[c]
                 if perf_sum_right[i] - prev_val > 0.1*self.weighted_n_right:
                     sq_count_right += running_w * running_w
-                    running_w = sum_left[i]
+                    running_w = sum_right[i]
                 else:
                     running_w += sum_right[i]
             
@@ -799,15 +788,6 @@ cdef class Gini(ClassificationCriterion):
             gini_right += 1.0 - sq_count_right / (self.weighted_n_right *
                                                   self.weighted_n_right)
 
-            with gil:
-                print('DIM ' + str(self.weighted_n_left) + ' ' + \
-                        str(self.weighted_n_right))
-                for j in range(self.n_algs):
-                    print(perf_sum_left[j]),
-                print('')
-                for j in range(self.n_algs):
-                    print(perf_sum_right[j]),
-                print('')
             sum_left += self.sum_stride
             sum_right += self.sum_stride
 
