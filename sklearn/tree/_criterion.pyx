@@ -44,6 +44,10 @@ cdef class Criterion:
         free(self.sum_total)
         free(self.sum_left)
         free(self.sum_right)
+        free(self.perf_sum_total)
+        free(self.perf_sum_left)
+        free(self.perf_sum_right)
+        free(self.sort_inds)
 
     def __getstate__(self):
         return {}
@@ -51,7 +55,8 @@ cdef class Criterion:
     def __setstate__(self, d):
         pass
 
-    cdef int init(self, DOUBLE_t* y, SIZE_t y_stride, DOUBLE_t* sample_weight,
+    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, SIZE_t y_stride, 
+                  DOUBLE_t* sample_weight,
                   double weighted_n_samples, SIZE_t* samples, SIZE_t start,
                   SIZE_t end) nogil except -1:
         """Placeholder for a method which will initialize the criterion.
@@ -245,6 +250,11 @@ cdef class ClassificationCriterion(Criterion):
         self.sum_left = NULL
         self.sum_right = NULL
         self.n_classes = NULL
+        self.perf_sum_total = NULL
+        self.perf_sum_right = NULL
+        self.perf_sum_left = NULL
+        self.n_algs = n_classes[0]
+
 
         safe_realloc(&self.n_classes, n_outputs)
 
@@ -265,10 +275,17 @@ cdef class ClassificationCriterion(Criterion):
         self.sum_total = <double*> calloc(n_elements, sizeof(double))
         self.sum_left = <double*> calloc(n_elements, sizeof(double))
         self.sum_right = <double*> calloc(n_elements, sizeof(double))
+        self.perf_sum_total = <double*> calloc(self.n_algs, sizeof(double))
+        self.perf_sum_left = <double*> calloc(self.n_algs, sizeof(double))
+        self.perf_sum_right = <double*> calloc(self.n_algs, sizeof(double))
+        self.sort_inds = <SIZE_t*> calloc(self.n_algs, sizeof(SIZE_t))
 
         if (self.sum_total == NULL or
                 self.sum_left == NULL or
-                self.sum_right == NULL):
+                self.sum_right == NULL or
+                self.perf_sum_total == NULL or
+                self.perf_sum_right == NULL or
+                self.perf_sum_left == NULL):
             raise MemoryError()
 
     def __dealloc__(self):
@@ -281,7 +298,7 @@ cdef class ClassificationCriterion(Criterion):
                  sizet_ptr_to_ndarray(self.n_classes, self.n_outputs)),
                 self.__getstate__())
 
-    cdef int init(self, DOUBLE_t* y, SIZE_t y_stride,
+    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, SIZE_t y_stride,
                   DOUBLE_t* sample_weight, double weighted_n_samples,
                   SIZE_t* samples, SIZE_t start, SIZE_t end) nogil except -1:
         """Initialize the criterion at node samples[start:end] and
@@ -310,6 +327,7 @@ cdef class ClassificationCriterion(Criterion):
         """
 
         self.y = y
+        self.regrets = regrets
         self.y_stride = y_stride
         self.sample_weight = sample_weight
         self.samples = samples
@@ -321,6 +339,7 @@ cdef class ClassificationCriterion(Criterion):
 
         cdef SIZE_t* n_classes = self.n_classes
         cdef double* sum_total = self.sum_total
+        cdef double* perf_sum_total = self.perf_sum_total
 
         cdef SIZE_t i
         cdef SIZE_t p
@@ -328,6 +347,15 @@ cdef class ClassificationCriterion(Criterion):
         cdef SIZE_t c
         cdef DOUBLE_t w = 1.0
         cdef SIZE_t offset = 0
+
+        memset(perf_sum_total, 0, self.n_algs * sizeof(double))
+
+        #BEGIN: initialize sum total and num total
+        for p in range(start, end):
+            i = samples[p]
+            for k in range(self.n_algs):
+                perf_sum_total[k] += regrets[i * self.n_algs + k]
+        #END
 
         for k in range(self.n_outputs):
             memset(sum_total + offset, 0, n_classes[k] * sizeof(double))
@@ -366,6 +394,9 @@ cdef class ClassificationCriterion(Criterion):
         cdef double* sum_total = self.sum_total
         cdef double* sum_left = self.sum_left
         cdef double* sum_right = self.sum_right
+        cdef double* perf_sum_total = self.perf_sum_total
+        cdef double* perf_sum_left = self.perf_sum_left
+        cdef double* perf_sum_right = self.perf_sum_right
 
         cdef SIZE_t* n_classes = self.n_classes
         cdef SIZE_t k
@@ -377,6 +408,10 @@ cdef class ClassificationCriterion(Criterion):
             sum_total += self.sum_stride
             sum_left += self.sum_stride
             sum_right += self.sum_stride
+
+        memset(perf_sum_left, 0, self.n_algs * sizeof(double))
+        memcpy(perf_sum_right, perf_sum_total, self.n_algs * sizeof(double))
+
         return 0
 
     cdef int reverse_reset(self) nogil except -1:
@@ -393,6 +428,9 @@ cdef class ClassificationCriterion(Criterion):
         cdef double* sum_total = self.sum_total
         cdef double* sum_left = self.sum_left
         cdef double* sum_right = self.sum_right
+        cdef double* perf_sum_total = self.perf_sum_total
+        cdef double* perf_sum_left = self.perf_sum_left
+        cdef double* perf_sum_right = self.perf_sum_right
 
         cdef SIZE_t* n_classes = self.n_classes
         cdef SIZE_t k
@@ -404,6 +442,9 @@ cdef class ClassificationCriterion(Criterion):
             sum_total += self.sum_stride
             sum_left += self.sum_stride
             sum_right += self.sum_stride
+
+        memset(perf_sum_right, 0, self.n_algs * sizeof(double))
+        memcpy(perf_sum_left, perf_sum_total, self.n_algs * sizeof(double))
         return 0
 
     cdef int update(self, SIZE_t new_pos) nogil except -1:
@@ -425,6 +466,10 @@ cdef class ClassificationCriterion(Criterion):
         cdef double* sum_left = self.sum_left
         cdef double* sum_right = self.sum_right
         cdef double* sum_total = self.sum_total
+        cdef double* perf_sum_total = self.perf_sum_total
+        cdef double* perf_sum_left = self.perf_sum_left
+        cdef double* perf_sum_right = self.perf_sum_right
+        cdef double* regrets = self.regrets
 
         cdef SIZE_t* n_classes = self.n_classes
         cdef SIZE_t* samples = self.samples
@@ -444,8 +489,17 @@ cdef class ClassificationCriterion(Criterion):
         # and that sum_total is known, we are going to update
         # sum_left from the direction that require the least amount
         # of computations, i.e. from pos to new_pos or from end to new_po.
+        
+        with gil:
+            print('POS ' + str(self.start) + ' ' + str(self.pos) + ' ' + \
+                    str(new_pos) + ' ' + str(self.end))
 
         if (new_pos - pos) <= (end - new_pos):
+            for p in range(pos, new_pos):
+                i = samples[p]
+                for k in range(self.n_algs):
+                    perf_sum_left[k] += regrets[i * self.n_algs + k]
+
             for p in range(pos, new_pos):
                 i = samples[p]
 
@@ -461,6 +515,11 @@ cdef class ClassificationCriterion(Criterion):
 
         else:
             self.reverse_reset()
+            
+            for p in range(end - 1, new_pos - 1, -1):
+                i = samples[p]
+                for k in range(self.n_algs):
+                    perf_sum_left[k] -= regrets[i * self.n_algs + k]
 
             for p in range(end - 1, new_pos - 1, -1):
                 i = samples[p]
@@ -476,6 +535,9 @@ cdef class ClassificationCriterion(Criterion):
                 self.weighted_n_left -= w
 
         # Update right part statistics
+        for k in range(0, self.n_algs):
+            perf_sum_right[k] = perf_sum_total[k] - perf_sum_left[k]
+
         self.weighted_n_right = self.weighted_n_node_samples - self.weighted_n_left
         for k in range(self.n_outputs):
             for c in range(n_classes[k]):
@@ -594,6 +656,16 @@ cdef class Entropy(ClassificationCriterion):
         impurity_left[0] = entropy_left / self.n_outputs
         impurity_right[0] = entropy_right / self.n_outputs
 
+cdef void small_sort(SIZE_t* ind, double* arr, int l) nogil:
+    cdef int tmp, k = 0, j = 0
+    for k in range(l):
+        ind[k] = k
+    for k in range(l):
+        for j in range(k+1, l):
+            if arr[ind[k]] > arr[ind[j]]:
+                tmp = ind[k]
+                ind[k] = ind[j]
+                ind[j] = tmp
 
 cdef class Gini(ClassificationCriterion):
     r"""Gini Index impurity criterion.
@@ -619,18 +691,39 @@ cdef class Gini(ClassificationCriterion):
 
         cdef SIZE_t* n_classes = self.n_classes
         cdef double* sum_total = self.sum_total
+        cdef double* perf_sum_total = self.perf_sum_total
+        cdef SIZE_t* sort_inds = self.sort_inds
         cdef double gini = 0.0
         cdef double sq_count
         cdef double count_k
         cdef SIZE_t k
         cdef SIZE_t c
+        cdef SIZE_t i
+        cdef double prev_val
+        cdef double running_w
 
+        small_sort(sort_inds, perf_sum_total, self.n_algs)
+        with gil:
+            for k in range(self.n_algs):
+                print(sort_inds[k]),
+            print('')
+            for k in range(self.n_algs):
+                print(perf_sum_total[k]),
+            print('')
         for k in range(self.n_outputs):
+            running_w = 0
             sq_count = 0.0
-
+            prev_val = perf_sum_total[sort_inds[0]]
             for c in range(n_classes[k]):
-                count_k = sum_total[c]
-                sq_count += count_k * count_k
+                i = sort_inds[c]
+                if perf_sum_total[i] - prev_val > 0.1*self.weighted_n_node_samples:
+                    sq_count += running_w * running_w
+                    running_w = sum_total[i]
+                    prev_val = perf_sum_total[i]
+                else:
+                    running_w += sum_total[i]
+
+            sq_count += running_w * running_w
 
             gini += 1.0 - sq_count / (self.weighted_n_node_samples *
                                       self.weighted_n_node_samples)
@@ -656,7 +749,10 @@ cdef class Gini(ClassificationCriterion):
 
         cdef SIZE_t* n_classes = self.n_classes
         cdef double* sum_left = self.sum_left
+        cdef double* perf_sum_left = self.perf_sum_left
         cdef double* sum_right = self.sum_right
+        cdef double* perf_sum_right = self.perf_sum_right
+        cdef SIZE_t* sort_inds = self.sort_inds
         cdef double gini_left = 0.0
         cdef double gini_right = 0.0
         cdef double sq_count_left
@@ -664,24 +760,54 @@ cdef class Gini(ClassificationCriterion):
         cdef double count_k
         cdef SIZE_t k
         cdef SIZE_t c
-
+        cdef SIZE_t i
+        cdef double running_w
         for k in range(self.n_outputs):
+            running_w = 0
             sq_count_left = 0.0
             sq_count_right = 0.0
+            small_sort(sort_inds, perf_sum_left, self.n_algs)
+
+
+            prev_val = perf_sum_left[sort_inds[0]]
 
             for c in range(n_classes[k]):
-                count_k = sum_left[c]
-                sq_count_left += count_k * count_k
+                i = sort_inds[c]
+                if perf_sum_left[i] - prev_val > 0.1*self.weighted_n_left:
+                    sq_count_left += running_w * running_w
+                    running_w = sum_left[i]
+                    prev_val = perf_sum_left[i]
+                else:
+                    running_w += sum_left[i]
 
-                count_k = sum_right[c]
-                sq_count_right += count_k * count_k
-
+            sq_count_left += running_w * running_w
             gini_left += 1.0 - sq_count_left / (self.weighted_n_left *
                                                 self.weighted_n_left)
 
+            small_sort(sort_inds, perf_sum_right, self.n_algs)
+            running_w = 0
+            prev_val = perf_sum_right[sort_inds[0]]
+            for c in range(n_classes[k]):
+                i = sort_inds[c]
+                if perf_sum_right[i] - prev_val > 0.1*self.weighted_n_right:
+                    sq_count_right += running_w * running_w
+                    running_w = sum_left[i]
+                else:
+                    running_w += sum_right[i]
+            
+            sq_count_right += running_w * running_w
             gini_right += 1.0 - sq_count_right / (self.weighted_n_right *
                                                   self.weighted_n_right)
 
+            with gil:
+                print('DIM ' + str(self.weighted_n_left) + ' ' + \
+                        str(self.weighted_n_right))
+                for j in range(self.n_algs):
+                    print(perf_sum_left[j]),
+                print('')
+                for j in range(self.n_algs):
+                    print(perf_sum_right[j]),
+                print('')
             sum_left += self.sum_stride
             sum_right += self.sum_stride
 
@@ -751,7 +877,8 @@ cdef class RegressionCriterion(Criterion):
     def __reduce__(self):
         return (type(self), (self.n_outputs, self.n_samples), self.__getstate__())
 
-    cdef int init(self, DOUBLE_t* y, SIZE_t y_stride, DOUBLE_t* sample_weight,
+    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, SIZE_t y_stride,
+                  DOUBLE_t* sample_weight,
                   double weighted_n_samples, SIZE_t* samples, SIZE_t start,
                   SIZE_t end) nogil except -1:
         """Initialize the criterion at node samples[start:end] and
@@ -1044,7 +1171,8 @@ cdef class MAE(RegressionCriterion):
             self.left_child[k] = WeightedMedianCalculator(n_samples)
             self.right_child[k] = WeightedMedianCalculator(n_samples)
 
-    cdef int init(self, DOUBLE_t* y, SIZE_t y_stride, DOUBLE_t* sample_weight,
+    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, SIZE_t y_stride,
+                  DOUBLE_t* sample_weight,
                   double weighted_n_samples, SIZE_t* samples, SIZE_t start,
                   SIZE_t end) nogil except -1:
         """Initialize the criterion at node samples[start:end] and

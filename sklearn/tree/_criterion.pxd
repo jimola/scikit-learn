@@ -25,6 +25,7 @@ cdef class Criterion:
 
     # Internal structures
     cdef DOUBLE_t* y                     # Values of y
+    cdef DOUBLE_t* regrets
     cdef SIZE_t y_stride                 # Stride in y (since n_outputs >= 1)
     cdef DOUBLE_t* sample_weight         # Sample weights
 
@@ -48,12 +49,18 @@ cdef class Criterion:
                                     # where k is output index.
     cdef double* sum_left           # Same as above, but for the left side of the split
     cdef double* sum_right          # same as above, but for the right side of the split
+    cdef double* perf_sum_total
+    cdef double* perf_sum_left
+    cdef double* perf_sum_right
+    cdef SIZE_t* sort_inds
+    cdef SIZE_t n_algs
 
     # The criterion object is maintained such that left and right collected
     # statistics correspond to samples[start:pos] and samples[pos:end].
 
     # Methods
-    cdef int init(self, DOUBLE_t* y, SIZE_t y_stride, DOUBLE_t* sample_weight,
+    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, SIZE_t y_stride, 
+                        DOUBLE_t* sample_weight,
                   double weighted_n_samples, SIZE_t* samples, SIZE_t start,
                   SIZE_t end) nogil except -1
     cdef int reset(self) nogil except -1

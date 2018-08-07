@@ -61,6 +61,7 @@ cdef class Splitter:
                                          # allowed on dense data
 
     cdef DOUBLE_t* y
+    cdef DOUBLE_t* regrets
     cdef SIZE_t y_stride
     cdef DOUBLE_t* sample_weight
 
@@ -82,6 +83,7 @@ cdef class Splitter:
 
     # Methods
     cdef int init(self, object X, np.ndarray y,
+                  np.ndarray regrets,
                   DOUBLE_t* sample_weight,
                   np.ndarray X_idx_sorted=*) except -1
 

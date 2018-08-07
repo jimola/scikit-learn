@@ -91,6 +91,7 @@ cdef class TreeBuilder:
     """Interface for different tree building strategies."""
 
     cpdef build(self, Tree tree, object X, np.ndarray y,
+                np.ndarray regrets=None,
                 np.ndarray sample_weight=None,
                 np.ndarray X_idx_sorted=None):
         """Build a decision tree from the training set (X, y)."""
@@ -143,6 +144,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
         self.min_impurity_split = min_impurity_split
 
     cpdef build(self, Tree tree, object X, np.ndarray y,
+                np.ndarray regrets=None,
                 np.ndarray sample_weight=None,
                 np.ndarray X_idx_sorted=None):
         """Build a decision tree from the training set (X, y)."""
@@ -174,7 +176,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
         cdef double min_impurity_split = self.min_impurity_split
 
         # Recursive partition (without actual recursion)
-        splitter.init(X, y, sample_weight_ptr, X_idx_sorted)
+        splitter.init(X, y, regrets, sample_weight_ptr, X_idx_sorted)
 
         cdef SIZE_t start
         cdef SIZE_t end
@@ -314,6 +316,7 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         self.min_impurity_split = min_impurity_split
 
     cpdef build(self, Tree tree, object X, np.ndarray y,
+                np.ndarray regrets=None,
                 np.ndarray sample_weight=None,
                 np.ndarray X_idx_sorted=None):
         """Build a decision tree from the training set (X, y)."""
@@ -333,7 +336,7 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         cdef SIZE_t min_samples_split = self.min_samples_split
 
         # Recursive partition (without actual recursion)
-        splitter.init(X, y, sample_weight_ptr, X_idx_sorted)
+        splitter.init(X, y, regrets, sample_weight_ptr, X_idx_sorted)
 
         cdef PriorityHeap frontier = PriorityHeap(INITIAL_STACK_SIZE)
         cdef PriorityHeapRecord record
