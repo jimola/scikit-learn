@@ -108,7 +108,7 @@ class BaseDecisionTree(six.with_metaclass(ABCMeta, BaseEstimator)):
         self.class_weight = class_weight
         self.presort = presort
 
-    def fit(self, X, y, regrets=None, sample_weight=None, check_input=True,
+    def fit(self, X, y, regrets, C, sample_weight=None, check_input=True,
             X_idx_sorted=None):
 
         regrets = np.ascontiguousarray(regrets, dtype=DOUBLE)
@@ -364,7 +364,7 @@ class BaseDecisionTree(six.with_metaclass(ABCMeta, BaseEstimator)):
                                            self.min_impurity_decrease,
                                            min_impurity_split)
 
-        builder.build(self.tree_, X, y, regrets, sample_weight, X_idx_sorted)
+        builder.build(self.tree_, X, y, regrets, C, sample_weight, X_idx_sorted)
 
         if self.n_outputs_ == 1:
             self.n_classes_ = self.n_classes_[0]
@@ -754,7 +754,7 @@ class DecisionTreeClassifier(BaseDecisionTree, ClassifierMixin):
             min_impurity_split=min_impurity_split,
             presort=presort)
 
-    def fit(self, X, y, regrets=None, sample_weight=None, check_input=True,
+    def fit(self, X, y, regrets, C, sample_weight=None, check_input=True,
             X_idx_sorted=None):
         """Build a decision tree classifier from the training set (X, y).
 
@@ -791,7 +791,7 @@ class DecisionTreeClassifier(BaseDecisionTree, ClassifierMixin):
         """
 
         super(DecisionTreeClassifier, self).fit(
-            X, y, regrets,
+            X, y, regrets, C,
             sample_weight=sample_weight,
             check_input=check_input,
             X_idx_sorted=X_idx_sorted)

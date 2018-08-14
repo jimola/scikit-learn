@@ -55,7 +55,7 @@ cdef class Criterion:
     def __setstate__(self, d):
         pass
 
-    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, SIZE_t y_stride, 
+    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, DOUBLE_t C, SIZE_t y_stride, 
                   DOUBLE_t* sample_weight,
                   double weighted_n_samples, SIZE_t* samples, SIZE_t start,
                   SIZE_t end) nogil except -1:
@@ -298,7 +298,7 @@ cdef class ClassificationCriterion(Criterion):
                  sizet_ptr_to_ndarray(self.n_classes, self.n_outputs)),
                 self.__getstate__())
 
-    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, SIZE_t y_stride,
+    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, DOUBLE_t C, SIZE_t y_stride,
                   DOUBLE_t* sample_weight, double weighted_n_samples,
                   SIZE_t* samples, SIZE_t start, SIZE_t end) nogil except -1:
         """Initialize the criterion at node samples[start:end] and
@@ -328,6 +328,7 @@ cdef class ClassificationCriterion(Criterion):
 
         self.y = y
         self.regrets = regrets
+        self.C = C
         self.y_stride = y_stride
         self.sample_weight = sample_weight
         self.samples = samples
@@ -705,7 +706,7 @@ cdef class Gini(ClassificationCriterion):
             prev_val = perf_sum_total[sort_inds[0]]
             for c in range(n_classes[k]):
                 i = sort_inds[c]
-                if perf_sum_total[i] - prev_val > 0.1*self.weighted_n_node_samples:
+                if perf_sum_total[i] - prev_val > self.C*self.weighted_n_node_samples:
                     sq_count += running_w * running_w
                     running_w = sum_total[i]
                     prev_val = perf_sum_total[i]
@@ -762,7 +763,7 @@ cdef class Gini(ClassificationCriterion):
 
             for c in range(n_classes[k]):
                 i = sort_inds[c]
-                if perf_sum_left[i] - prev_val > 0.1*self.weighted_n_left:
+                if perf_sum_left[i] - prev_val > self.C*self.weighted_n_left:
                     sq_count_left += running_w * running_w
                     running_w = sum_left[i]
                     prev_val = perf_sum_left[i]
@@ -778,7 +779,7 @@ cdef class Gini(ClassificationCriterion):
             prev_val = perf_sum_right[sort_inds[0]]
             for c in range(n_classes[k]):
                 i = sort_inds[c]
-                if perf_sum_right[i] - prev_val > 0.1*self.weighted_n_right:
+                if perf_sum_right[i] - prev_val > self.C*self.weighted_n_right:
                     sq_count_right += running_w * running_w
                     running_w = sum_right[i]
                 else:
@@ -857,7 +858,7 @@ cdef class RegressionCriterion(Criterion):
     def __reduce__(self):
         return (type(self), (self.n_outputs, self.n_samples), self.__getstate__())
 
-    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, SIZE_t y_stride,
+    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, DOUBLE_t C, SIZE_t y_stride,
                   DOUBLE_t* sample_weight,
                   double weighted_n_samples, SIZE_t* samples, SIZE_t start,
                   SIZE_t end) nogil except -1:
@@ -1151,7 +1152,7 @@ cdef class MAE(RegressionCriterion):
             self.left_child[k] = WeightedMedianCalculator(n_samples)
             self.right_child[k] = WeightedMedianCalculator(n_samples)
 
-    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, SIZE_t y_stride,
+    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, DOUBLE_t C, SIZE_t y_stride,
                   DOUBLE_t* sample_weight,
                   double weighted_n_samples, SIZE_t* samples, SIZE_t start,
                   SIZE_t end) nogil except -1:

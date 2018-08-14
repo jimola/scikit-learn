@@ -91,7 +91,8 @@ cdef class TreeBuilder:
     """Interface for different tree building strategies."""
 
     cpdef build(self, Tree tree, object X, np.ndarray y,
-                np.ndarray regrets=None,
+                np.ndarray regrets,
+                double C,
                 np.ndarray sample_weight=None,
                 np.ndarray X_idx_sorted=None):
         """Build a decision tree from the training set (X, y)."""
@@ -144,7 +145,8 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
         self.min_impurity_split = min_impurity_split
 
     cpdef build(self, Tree tree, object X, np.ndarray y,
-                np.ndarray regrets=None,
+                np.ndarray regrets,
+                double C,
                 np.ndarray sample_weight=None,
                 np.ndarray X_idx_sorted=None):
         """Build a decision tree from the training set (X, y)."""
@@ -176,7 +178,7 @@ cdef class DepthFirstTreeBuilder(TreeBuilder):
         cdef double min_impurity_split = self.min_impurity_split
 
         # Recursive partition (without actual recursion)
-        splitter.init(X, y, regrets, sample_weight_ptr, X_idx_sorted)
+        splitter.init(X, y, regrets, C, sample_weight_ptr, X_idx_sorted)
 
         cdef SIZE_t start
         cdef SIZE_t end
@@ -316,7 +318,8 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         self.min_impurity_split = min_impurity_split
 
     cpdef build(self, Tree tree, object X, np.ndarray y,
-                np.ndarray regrets=None,
+                np.ndarray regrets,
+                double C,
                 np.ndarray sample_weight=None,
                 np.ndarray X_idx_sorted=None):
         """Build a decision tree from the training set (X, y)."""
@@ -336,7 +339,7 @@ cdef class BestFirstTreeBuilder(TreeBuilder):
         cdef SIZE_t min_samples_split = self.min_samples_split
 
         # Recursive partition (without actual recursion)
-        splitter.init(X, y, regrets, sample_weight_ptr, X_idx_sorted)
+        splitter.init(X, y, regrets, C, sample_weight_ptr, X_idx_sorted)
 
         cdef PriorityHeap frontier = PriorityHeap(INITIAL_STACK_SIZE)
         cdef PriorityHeapRecord record
@@ -928,7 +931,11 @@ cdef class Tree:
         cdef np.ndarray[SIZE_t] indices = np.zeros(n_samples *
                                                    (1 + self.max_depth),
                                                    dtype=np.intp)
+        cdef np.ndarray[SIZE_t] feats = np.zeros(n_samples * 
+                                                 (1 + self.max_depth),
+                                                 dtype=np.intp)
         cdef SIZE_t* indices_ptr = <SIZE_t*> indices.data
+        cdef SIZE_t* feats_ptr = <SIZE_t*> feats.data
 
         # Initialize auxiliary data-structure
         cdef Node* node = NULL
@@ -943,6 +950,7 @@ cdef class Tree:
                 while node.left_child != _TREE_LEAF:
                     # ... and node.right_child != _TREE_LEAF:
                     indices_ptr[indptr_ptr[i + 1]] = <SIZE_t>(node - self.nodes)
+                    feats_ptr[indptr_ptr[i + 1]] = node.feature + 1
                     indptr_ptr[i + 1] += 1
 
                     if X_ptr[X_sample_stride * i +
@@ -953,12 +961,13 @@ cdef class Tree:
 
                 # Add the leave node
                 indices_ptr[indptr_ptr[i + 1]] = <SIZE_t>(node - self.nodes)
+                #feats_ptr[indptr_ptr[i + 1]] = -1
                 indptr_ptr[i + 1] += 1
 
         indices = indices[:indptr[n_samples]]
-        cdef np.ndarray[SIZE_t] data = np.ones(shape=len(indices),
-                                               dtype=np.intp)
-        out = csr_matrix((data, indices, indptr),
+        feats = feats[:indptr[n_samples]]
+
+        out = csr_matrix((feats, indices, indptr),
                          shape=(n_samples, self.node_count))
 
         return out

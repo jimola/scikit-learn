@@ -26,6 +26,7 @@ cdef class Criterion:
     # Internal structures
     cdef DOUBLE_t* y                     # Values of y
     cdef DOUBLE_t* regrets
+    cdef DOUBLE_t C
     cdef SIZE_t y_stride                 # Stride in y (since n_outputs >= 1)
     cdef DOUBLE_t* sample_weight         # Sample weights
 
@@ -59,7 +60,7 @@ cdef class Criterion:
     # statistics correspond to samples[start:pos] and samples[pos:end].
 
     # Methods
-    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, SIZE_t y_stride, 
+    cdef int init(self, DOUBLE_t* y, DOUBLE_t* regrets, DOUBLE_t C, SIZE_t y_stride, 
                         DOUBLE_t* sample_weight,
                   double weighted_n_samples, SIZE_t* samples, SIZE_t start,
                   SIZE_t end) nogil except -1
