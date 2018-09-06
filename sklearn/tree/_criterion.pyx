@@ -563,12 +563,14 @@ cdef class ClassificationCriterion(Criterion):
             The memory address which we will save the node value into.
         """
 
-        cdef double* sum_total = self.sum_total
+        cdef double* sum_total = self.perf_sum_total
         cdef SIZE_t* n_classes = self.n_classes
         cdef SIZE_t k
 
         for k in range(self.n_outputs):
-            memcpy(dest, sum_total, n_classes[k] * sizeof(double))
+            #memcpy(dest, sum_total, n_classes[k] * sizeof(double))
+            for i in range(n_classes[k]):
+                dest[i] = 1.0-sum_total[i] / self.weighted_n_node_samples
             dest += self.sum_stride
             sum_total += self.sum_stride
 
@@ -702,21 +704,21 @@ cdef class Gini(ClassificationCriterion):
         small_sort(sort_inds, perf_sum_total, self.n_algs)
         for k in range(self.n_outputs):
             running_w = 0
-            sq_count = 0.0
+            sq_count = self.weighted_n_node_samples
             prev_val = perf_sum_total[sort_inds[0]]
             for c in range(n_classes[k]):
                 i = sort_inds[c]
                 if perf_sum_total[i] - prev_val > self.C*self.weighted_n_node_samples:
-                    sq_count += running_w * running_w
-                    running_w = sum_total[i]
+                    #sq_count += running_w * running_w
+                    sq_count = min(sq_count, running_w)
+                    running_w = perf_sum_total[i]
                     prev_val = perf_sum_total[i]
                 else:
-                    running_w += sum_total[i]
+                    running_w += perf_sum_total[i]
 
-            sq_count += running_w * running_w
-
-            gini += 1.0 - sq_count / (self.weighted_n_node_samples *
-                                      self.weighted_n_node_samples)
+            #sq_count += running_w * running_w
+            sq_count = min(sq_count, running_w)
+            gini += sq_count / self.weighted_n_node_samples
 
             sum_total += self.sum_stride
 
@@ -754,40 +756,39 @@ cdef class Gini(ClassificationCriterion):
         cdef double running_w
         for k in range(self.n_outputs):
             running_w = 0
-            sq_count_left = 0.0
-            sq_count_right = 0.0
+            sq_count_left = self.weighted_n_left
+            sq_count_right = self.weighted_n_right
             small_sort(sort_inds, perf_sum_left, self.n_algs)
 
 
             prev_val = perf_sum_left[sort_inds[0]]
-
             for c in range(n_classes[k]):
                 i = sort_inds[c]
                 if perf_sum_left[i] - prev_val > self.C*self.weighted_n_left:
-                    sq_count_left += running_w * running_w
-                    running_w = sum_left[i]
+                    sq_count_left = min(sq_count_left, running_w)
+                    running_w = perf_sum_left[i]
                     prev_val = perf_sum_left[i]
                 else:
-                    running_w += sum_left[i]
+                    running_w += perf_sum_left[i]
 
-            sq_count_left += running_w * running_w
-            gini_left += 1.0 - sq_count_left / (self.weighted_n_left *
-                                                self.weighted_n_left)
+            sq_count_left = min(sq_count_left, running_w)
+            gini_left += sq_count_left / self.weighted_n_left
 
             small_sort(sort_inds, perf_sum_right, self.n_algs)
+
             running_w = 0
             prev_val = perf_sum_right[sort_inds[0]]
             for c in range(n_classes[k]):
                 i = sort_inds[c]
                 if perf_sum_right[i] - prev_val > self.C*self.weighted_n_right:
-                    sq_count_right += running_w * running_w
-                    running_w = sum_right[i]
+                    sq_count_right = min(sq_count_right, running_w)
+                    running_w = perf_sum_right[i]
+                    prev_val = perf_sum_right[i]
                 else:
-                    running_w += sum_right[i]
+                    running_w += perf_sum_right[i]
             
-            sq_count_right += running_w * running_w
-            gini_right += 1.0 - sq_count_right / (self.weighted_n_right *
-                                                  self.weighted_n_right)
+            sq_count_right = min(sq_count_right, running_w)
+            gini_right += sq_count_right / self.weighted_n_right
 
             sum_left += self.sum_stride
             sum_right += self.sum_stride
