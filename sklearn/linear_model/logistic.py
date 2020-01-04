@@ -77,7 +77,8 @@ def _intercept_dot(w, X, y):
     return w, c, yz
 
 
-def _logistic_loss_and_grad(w, X, y, alpha, sample_weight=None):
+def _logistic_loss_and_grad(w, X, y, alpha, sample_weight=None, delta_n=0,
+                            b_vec = 0):
     """Computes the logistic loss and gradient.
 
     Parameters
@@ -106,6 +107,7 @@ def _logistic_loss_and_grad(w, X, y, alpha, sample_weight=None):
     grad : ndarray, shape (n_features,) or (n_features + 1,)
         Logistic gradient.
     """
+    alpha += delta_n
     n_samples, n_features = X.shape
     grad = np.empty_like(w)
 
@@ -115,12 +117,13 @@ def _logistic_loss_and_grad(w, X, y, alpha, sample_weight=None):
         sample_weight = np.ones(n_samples)
 
     # Logistic loss is the negative of the log of the logistic function.
-    out = -np.sum(sample_weight * log_logistic(yz)) + .5 * alpha * np.dot(w, w)
+    out = -np.sum(sample_weight * log_logistic(yz)) \
+            + .5 * alpha * np.dot(w, w) + np.dot(b_vec, w)
 
     z = expit(yz)
     z0 = sample_weight * (z - 1) * y
 
-    grad[:n_features] = safe_sparse_dot(X.T, z0) + alpha * w
+    grad[:n_features] = safe_sparse_dot(X.T, z0) + alpha * w + b_vec
 
     # Case where we fit the intercept.
     if grad.shape[0] > n_features:
@@ -454,7 +457,8 @@ def logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                              class_weight=None, dual=False, penalty='l2',
                              intercept_scaling=1., multi_class='ovr',
                              random_state=None, check_input=True,
-                             max_squared_sum=None, sample_weight=None):
+                             max_squared_sum=None, sample_weight=None,
+                             delta=0, b_vec=0):
     """Compute a Logistic Regression model for a list of regularization
     parameters.
 
@@ -714,7 +718,7 @@ def logistic_regression_path(X, y, pos_class=None, Cs=10, fit_intercept=True,
                 np.searchsorted(np.array([0, 1, 2, 3]), verbose)]
             w0, loss, info = optimize.fmin_l_bfgs_b(
                 func, w0, fprime=None,
-                args=(X, target, 1. / C, sample_weight),
+                args=(X, target, 1. / C, sample_weight, delta, b_vec),
                 iprint=iprint, pgtol=tol, maxiter=max_iter)
             if info["warnflag"] == 1:
                 warnings.warn("lbfgs failed to converge. Increase the number "
@@ -959,6 +963,13 @@ def _log_reg_scoring_path(X, y, train, test, pos_class=None, Cs=10,
             scores.append(scoring(log_reg, X_test, y_test))
     return coefs, Cs, np.array(scores), n_iter
 
+def sampleR(d, beta):
+    """Sample r in R^d proportionally to exp(-|r|_2 / beta)"""
+    erlang = sum(np.random.exponential(scale = beta, size = d)) 
+    direction = np.random.normal(size = d)
+    direction = direction / np.linalg.norm(direction)
+    return erlang * direction
+
 
 class LogisticRegression(BaseEstimator, LinearClassifierMixin,
                          SparseCoefMixin):
@@ -1173,18 +1184,26 @@ class LogisticRegression(BaseEstimator, LinearClassifierMixin,
         self.dual = dual
         self.tol = tol
         self.C = C
+        if fit_intercept:
+            raise ValueError("fit_intercept must be False to ensure"
+                             " differential privacy")
         self.fit_intercept = fit_intercept
         self.intercept_scaling = intercept_scaling
         self.class_weight = class_weight
         self.random_state = random_state
+        if solver != 'lbfgs':
+            raise ValueError("lbfgs solver required for objective perturbation")
         self.solver = solver
         self.max_iter = max_iter
         self.multi_class = multi_class
         self.verbose = verbose
+        if warm_start:
+            raise ValueError("warm_start must be False for objective"
+                    " perturbation");
         self.warm_start = warm_start
         self.n_jobs = n_jobs
 
-    def fit(self, X, y, sample_weight=None):
+    def fit(self, X, y, delta, tightness, sample_weight=None):
         """Fit the model according to the given training data.
 
         Parameters
@@ -1255,6 +1274,8 @@ class LogisticRegression(BaseEstimator, LinearClassifierMixin,
             raise ValueError("This solver needs samples of at least 2 classes"
                              " in the data, but the data contains only one"
                              " class: %r" % classes_[0])
+        if n_classes > 2:
+            raise ValueError("> 2 classes is not currently supported")
 
         if len(self.classes_) == 2:
             n_classes = 1
@@ -1281,6 +1302,8 @@ class LogisticRegression(BaseEstimator, LinearClassifierMixin,
 
         path_func = delayed(logistic_regression_path)
 
+        delta = delta * n_samples
+        b_vec = sampleR(n_features, 1.0/tightness)
         # The SAG solver releases the GIL so it's more efficient to use
         # threads for this solver.
         if self.solver in ['sag', 'saga']:
@@ -1297,7 +1320,9 @@ class LogisticRegression(BaseEstimator, LinearClassifierMixin,
                       random_state=self.random_state, coef=warm_start_coef_,
                       penalty=self.penalty,
                       max_squared_sum=max_squared_sum,
-                      sample_weight=sample_weight)
+                      sample_weight=sample_weight,
+                      delta=delta,
+                      b_vec=b_vec)
             for class_, warm_start_coef_ in zip(classes_, warm_start_coef))
 
         fold_coefs_, _, n_iter_ = zip(*fold_coefs_)
